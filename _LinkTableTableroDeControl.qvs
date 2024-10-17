@@ -1,0 +1,47 @@
+﻿/*-----------------------------------------------------------------------------------------------------------------------------------------------
+Compañia: 		Eficacia S.A
+Proceso:		Transformacion Link Table
+Desarrollador: 	Sergio Grisales
+Email:			sergio_grisales@eficacia.com.co
+Fecha			2024/02/05 (YYYY/MM/DD)
+Estado:         Activo
+-----------------------------------------------------------------------------------------------------------------------------------------------*/
+
+LinkTable_Tmp1:
+LOAD DISTINCT
+        TableroDeControl.Id_PuntoVenta      as LinkTable.IdPuntoVenta,
+        TableroDeControl.Marca              as LinkTable.Marca
+    FROM 
+    [lib://COMP_DataMart (eficacia_admin_analitica)/SGI/Colombia/CENTRAL_CERVECERA/_TableroDeControl.qvd]
+    (qvd);
+
+Concatenate
+LOAD DISTINCT
+       Inventario.Id_PuntoVenta             as LinkTable.IdPuntoVenta,
+       Inventario.Marca                     as LinkTable.Marca
+    FROM 
+    [lib://COMP_DataMart (eficacia_admin_analitica)/SGI/Colombia/CENTRAL_CERVECERA/_Inventario.qvd]
+    (qvd);
+
+/*---------*/
+NoConcatenate
+LinkTable_Tmp:
+    Load Distinct
+        LinkTable.IdPuntoVenta,
+        LinkTable.Marca
+    Resident LinkTable_Tmp1;
+    Drop Table LinkTable_Tmp1;
+
+NoConcatenate
+LinkTable:
+    LOAD Distinct
+        LinkTable.IdPuntoVenta&'-'&LinkTable.Marca    as CK.Key1,
+        LinkTable.IdPuntoVenta                        as SK.PuntoVenta,
+        LinkTable.Marca                               as SK.Marca
+
+    Resident LinkTable_Tmp;
+        
+STORE LinkTable INTO [lib://COMP_DataMart (eficacia_admin_analitica)/SGI/Colombia/CENTRAL_CERVECERA/_LinkTableTableroDeControl.qvd];
+Drop Table LinkTable;
+Drop Table LinkTable_Tmp;
+

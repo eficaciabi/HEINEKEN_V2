@@ -1,0 +1,61 @@
+﻿/*-----------------------------------------------------------------------------------------------------------------------------------------------
+Compañia: 		Eficacia S.A
+Proceso:		Transformacion Novedades_Opl
+Desarrollador: 	Javier Sanchez
+Email:			javier_sanchez@tacticabi.com
+Fecha			2023/12/04 (YYYY/MM/DD)
+Estado:         Activo
+-----------------------------------------------------------------------------------------------------------------------------------------------*/
+SET RutaServerUno ='https://s3-us-west-2.amazonaws.com/ipveficacia2/';
+SET vCodCliente = 526;
+Novedades_Tmp1:
+    LOAD 
+    	ID_REGISTRO,
+		ID_SUCURSAL 		AS Id_Sucursal,
+        FECHA_VISITA 		AS Fecha_Visita,
+        ID_USUARIO 			AS Id_Usuario,
+        SECCION 			AS Seccion,
+        PREGUNTA 			AS Pregunta,
+        ORDEN_PREGUNTA 		AS Orden_Pregunta,
+        RESPUESTA_1 		AS Respuesta_1,
+        RESPUESTA_2 		AS Url_Captura
+    FROM
+    [lib://COMP_Stage (eficacia_admin_analitica)/SGI/Colombia/HEINEKEN/En_NovedadesOPL_*.qvd]
+    (qvd);
+
+
+/*-Transformacion tabla novedades-*/
+RespuestasNO_Tmp:
+LOAD
+	Id_Sucursal&'-'&DATE(Fecha_Visita,'YYYY/MM/DD')&'-'&Id_Usuario&'-'&Seccion 			as Registro,
+    //ID_REGISTRO	as Registro,
+    Fecha_Visita,
+    Respuesta_1
+resident Novedades_Tmp1 
+where WildMatch(Respuesta_1,'NO');
+
+noconcatenate 
+Novedades_Tmp2:
+LOAD 
+    Id_Sucursal&'-'&DATE(Fecha_Visita,'YYYY/MM/DD')&'-'&Id_Usuario&'-'&Seccion 										as ck.keyNovedades,
+    Orden_Pregunta,
+    '$(RutaServerUno)'&Date(Fecha_Visita,'YYYY')&'/'&Date(Fecha_Visita,'MM')&'/'&$(vCodCliente)&'/'&Url_Captura		as Url_Captura,
+    Fecha_Visita
+resident Novedades_Tmp1 
+where 1=1
+and not Exists(Registro,Id_Sucursal&'-'&DATE(Fecha_Visita,'YYYY/MM/DD')&'-'&Id_Usuario&'-'&Seccion)
+and not WildMatch(UPPER(Pregunta),'TIENE FOTOS POR INGRESAR?');
+Drop table Novedades_Tmp1;
+Drop Table RespuestasNO_Tmp;
+
+NovedadesOplFotos:
+  Load
+		ck.keyNovedades,
+		Orden_Pregunta					as		NovedadesOplFotos.Orden_Pregunta,
+		Url_Captura						as		NovedadesOplFotos.Url_Captura,
+        Fecha_Visita
+  Resident Novedades_Tmp2;
+  Drop table Novedades_Tmp2;
+  
+STORE NovedadesOplFotos INTO [lib://COMP_DataMart (eficacia_admin_analitica)/SGI/Colombia/CENTRAL_CERVECERA/_NovedadesOplFotos.qvd];
+Drop Table NovedadesOplFotos;

@@ -1,0 +1,170 @@
+﻿/*-----------------------------------------------------------------------------------------------------------------------------------------------
+Compañia: 		Eficacia S.A
+Proceso:		Transformacion Novedades_Opl
+Desarrollador: 	Javier Sanchez
+Email:			javier_sanchez@tacticabi.com
+Fecha			2023/12/04 (YYYY/MM/DD)
+Estado:         Activo
+-----------------------------------------------------------------------------------------------------------------------------------------------*/
+ExclusionProductos_Tmp:
+LOAD 
+	 Id_Producto        as CK.Producto
+FROM 
+    [lib://COMP_Stage (eficacia_admin_analitica)/SGI/Colombia/CENTRAL_CERVECERA/Sh_ExclusionProductosJulio.qvd] 
+(qvd);
+
+Agotados_Tmp1:
+	LOAD 
+        AGOTADO					as Agotado,
+        PRESENTE                as Presente,
+        NO_MANEJANTE            as No_Manejante,
+        CAUSAL_AGOTADO          as Causal,
+        SUB_CAUSAL_AGOTADO      as SubCausal,
+        ID_PRODUCTO             as Id_Producto,
+        ID_SUCURSAL             as Id_Sucursal,
+        ID_USUARIO              as Id_Usuario,
+        FECHA_CAPTURA           as Fecha_Captura,
+        ID_REGISTRO             as Id_Registro
+	FROM
+	[lib://COMP_Stage (eficacia_admin_analitica)/SGI/Colombia/HEINEKEN/Agotados_*.qvd]
+	(qvd);
+/*-Se excluyen usuarios y filtrar unicamente por un subcausal-*/
+noconcatenate
+Agotados_Tmp2:
+	Load
+		Agotado,
+        Presente,
+        No_Manejante,
+        Causal,
+        SubCausal,
+        Id_Producto,
+        Id_Sucursal,
+        Id_Usuario,
+        Fecha_Captura,
+        Id_Registro,
+        DATE(Fecha_Captura,'YYYY/MM/DD') as Fecha
+    Resident Agotados_Tmp1
+    where not wildmatch(Id_Usuario,46468,145723,160381,169336)
+    AND SubCausal = 'OPERACIÓN LOGISTICA (OPL)';
+    drop table Agotados_Tmp1;
+
+/*-Se elige un registro por sucursal por dia y hora-*/
+noconcatenate
+Agotados_Tmp3:
+	Load
+    Id_Sucursal,
+    Date(Date(max(Fecha_Captura), 'YYYY/MM/DD hh:mm:ss'), 'YYYY/MM/DD hh:mm:ss') AS _Timestamp
+    Resident Agotados_Tmp2
+    Group By
+    	Id_Sucursal,
+        Fecha;
+    left join (Agotados_Tmp3)
+    Load
+    	Agotado,
+        Presente,
+        No_Manejante,
+        Causal,
+        SubCausal,
+        Id_Producto,
+        Id_Sucursal,
+        Id_Usuario,
+        Id_Registro,
+    	Fecha,
+        Date(Date(Fecha_Captura, 'YYYY/MM/DD hh:mm:ss'), 'YYYY/MM/DD hh:mm:ss') AS _Timestamp
+    Resident Agotados_Tmp2;
+   	drop table Agotados_Tmp2;
+    
+/*-Se Añade Categoria y semana a la tabla-*/
+NoConcatenate
+Agotados_Tmp4:
+	Load
+    	Fecha,
+        Id_Sucursal,
+        _Timestamp,
+        Agotado,
+        Presente,
+        No_Manejante,
+        Causal,
+        SubCausal,
+        Id_Producto,
+        Id_Usuario,
+        Id_Registro,
+        left(Date(Fecha,'YYY/MM/DD'),10) as Fecha_Semana
+     Resident Agotados_Tmp3;
+     left join(Agotados_Tmp4)
+     Load
+     	PRODUCTO_ID as Id_Producto,
+        CATEGORIA as Categoria
+     FROM [lib://COMP_Stage (eficacia_admin_analitica)/SGI/Colombia/HEINEKEN/IPV_Producto.qvd]
+	(qvd);
+   	left join(Agotados_Tmp4)
+    Load
+		left(Date(Fecha,'YYY/MM/DD'),10) as Fecha_Semana,
+        Semana
+    FROM
+    [lib://COMP_SharePoint_Internal (eficacia_admin_analitica)/SGI/Colombia/CENTRAL_CERVECERA/Semanas Central Cervecera.xlsx]
+	(ooxml, embedded labels, table is [Hoja1]);
+	drop table Agotados_Tmp3; 
+ 
+NoConcatenate
+Agotados_Tmp5:
+	Load
+    	Id_Sucursal&'-'&Fecha&'-'&Id_Usuario&'-'&Categoria 		as ck.keyNovedades,
+    	Id_Registro,														
+ 		Id_Sucursal,													
+        Id_Producto,														
+        Id_Usuario,														
+        Categoria,														
+        Fecha,													
+        Semana
+	resident Agotados_Tmp4;	
+	drop table Agotados_Tmp4;
+
+NoConcatenate
+Agotados_Tmp6:
+	Load
+    	ck.keyNovedades,
+    	Id_Registro,														
+ 		Id_Sucursal,													
+        Id_Producto,														
+        Id_Usuario,														
+        Categoria,														
+        Fecha,													
+        Semana
+	resident Agotados_Tmp5
+    Where
+    	Fecha <= '2024/06/30';
+
+Concatenate
+    LOAD
+        ck.keyNovedades,
+    	Id_Registro,														
+ 		Id_Sucursal,													
+        Id_Producto,														
+        Id_Usuario,														
+        Categoria,														
+        Fecha,													
+        Semana
+    resident Agotados_Tmp5
+    Where
+    	((Fecha > '2024/06/30') and not Exists(CK.Producto, Id_Producto));
+	drop table Agotados_Tmp5;
+
+ /*---------*/
+noconcatenate
+NovedadesOpl:
+	Load
+    	Id_Sucursal&'-'&Id_Usuario&'-'&Id_Producto&'-'&Fecha      		as		CK.Key2,
+        ck.keyNovedades,
+    	Id_Registro														as		NovedadesOpl.Id_Registro,
+ 		Id_Sucursal														as		NovedadesOpl.Id_Sucursal,
+        Id_Producto														as		NovedadesOpl.Id_Producto,
+        Id_Usuario														as		NovedadesOpl.Id_Usuario,
+        Categoria														as		NovedadesOpl.Categoria,
+        Date#(Fecha,'YYYY/MM/DD')										as		NovedadesOpl.Fecha,
+        Semana															as		NovedadesOpl.Semana
+   	Resident Agotados_Tmp6;
+	drop table Agotados_Tmp6;
+       
+STORE NovedadesOpl INTO [lib://COMP_DataMart (eficacia_admin_analitica)/SGI/Colombia/CENTRAL_CERVECERA/_NovedadesOpl.qvd];
+Drop Table NovedadesOpl;
